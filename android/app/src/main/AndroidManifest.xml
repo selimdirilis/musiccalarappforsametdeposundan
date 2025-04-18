@@ -15,7 +15,7 @@
 
         <!-- MainActivity Ayarları -->
         <activity
-            android:name=".MainActivity"
+            android:name="com.ryanheise.audioservice.AudioServiceActivity"
             android:icon="@drawable/app_icon"
             android:exported="true"
             android:launchMode="singleTop"
