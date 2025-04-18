@@ -5,7 +5,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:sliding_up_panel/sliding_up_panel.dart';
-
+import 'package:just_audio_background/just_audio_background.dart';
 import 'theme_provider.dart';
 import 'favorite_service.dart';
 import 'music_home_page.dart';
@@ -19,8 +19,8 @@ void main() async {
   await Future.delayed(Duration.zero, () async {
     // JustAudioBackground'ı başlatma
     await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.example.app.audio',
-      androidNotificationChannelName: 'Audio playback',
+      androidNotificationChannelId: 'com.example.music.channel.audio', // Paket adınıza uygun olarak değiştirildi
+      androidNotificationChannelName: 'Müzik Çalar',
       androidNotificationOngoing: true,
     );
   });
@@ -133,9 +133,19 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onSelect(SongModel song) async {
-    await _player.setAudioSource(
-      AudioSource.uri(Uri.parse(song.uri!), tag: song.id.toString()),
+    final mediaItem = MediaItem(
+      id: song.id.toString(),
+      title: song.title ?? 'Bilinmeyen Parça',
+      artist: song.artist ?? 'Bilinmeyen Sanatçı',
+      album: song.album ?? 'Bilinmeyen Albüm',
+      duration: Duration(milliseconds: song.duration ?? 0),
+      artUri: song.uri != null ? Uri.parse('file://${song.uri}') : null,
     );
+
+    await _player.setAudioSource(
+      AudioSource.uri(Uri.parse(song.uri!), tag: mediaItem),
+    );
+
     await _player.play();
     setState(() => _current = song);
   }

@@ -13,9 +13,9 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
-        <!-- MainActivity Ayarları -->
+        <!-- MainActivity Ayarları - .MainActivity olarak bırakıyoruz ama meta-data ekliyoruz -->
         <activity
-            android:name="com.ryanheise.audioservice.AudioServiceActivity"
+            android:name=".MainActivity"
             android:icon="@drawable/app_icon"
             android:exported="true"
             android:launchMode="singleTop"
@@ -24,6 +24,12 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+
+            <!-- AudioService için gerekli meta-data -->
+            <meta-data
+                android:name="com.ryanheise.audioservice.provider"
+                android:value="AudioServiceActivity" />
+
             <!-- Flutter UI başlatıldığında uygulanan tema -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
@@ -49,6 +55,15 @@
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
+
+        <!-- Bunları da ekleyin -->
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

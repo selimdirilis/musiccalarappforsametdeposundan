@@ -1,13 +1,7 @@
-package com.example.music
+package com.example.music  // Paket adınız burada olmalı
 
 import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugins.GeneratedPluginRegistrant
 
-class MainActivity : FlutterActivity() {
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        // Eklentileri kaydetmek
-        GeneratedPluginRegistrant.registerWith(flutterEngine)
-    }
+class MainActivity: FlutterActivity() {
+    // Boş bırakabilirsiniz
 }
