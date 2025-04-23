@@ -1,7 +1,8 @@
-package com.example.music  // Paket adınız burada olmalı
+package com.example.music
 
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceFragmentActivity
 
-class MainActivity: FlutterActivity() {
-    // Boş bırakabilirsiniz
+// AudioService ile background çalma için fragment tabanlı aktivite kullanıyoruz
+class MainActivity : AudioServiceFragmentActivity() {
+    // FlutterActivity yerine AudioServiceFragmentActivity kullanmak zorunlu
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:provider/provider.dart';
 import 'package:sliding_up_panel/sliding_up_panel.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+
 import 'theme_provider.dart';
 import 'favorite_service.dart';
 import 'music_home_page.dart';
@@ -15,21 +15,21 @@ import 'settings_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Arka planda çalışan işlemi beklememek için Future.delayed kullanıyoruz
-  await Future.delayed(Duration.zero, () async {
-    // JustAudioBackground'ı başlatma
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.example.music.channel.audio', // Paket adınıza uygun olarak değiştirildi
-      androidNotificationChannelName: 'Müzik Çalar',
-      androidNotificationOngoing: true,
-    );
-  });
+  // 2) just_audio_background başlat
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.example.music.audio',
+    androidNotificationChannelName: 'Müzik Çalma',
+    androidNotificationOngoing: true,
+  );
 
-  // Ekran yönünü yalnızca dikey yapmak için bu kodu ekliyoruz
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,  // Yalnızca dikey yönü kabul et
-    DeviceOrientation.portraitDown,  // Dikey aşağıyı da kabul et (ters ekran)
+  // 3) Yalnızca dikey mod
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
   ]);
+
+  // 4) Favori servisini başlat
+  await FavoriteService().initFavorites();
 
   runApp(
     ChangeNotifierProvider(
@@ -39,25 +39,40 @@ void main() async {
   );
 }
 
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
+  @override
+  // main.dart içinde MyApp.build
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final light = ThemeData.light().copyWith(
-      scaffoldBackgroundColor: Colors.white,
-      navigationBarTheme: const NavigationBarThemeData(
+    final baseColor = themeProvider.primaryColor;
+
+    final light = ThemeData(
+      brightness: Brightness.light,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: baseColor,
+        brightness: Brightness.light,
+      ),
+      useMaterial3: true,
+      navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
-        indicatorColor: Colors.greenAccent,
+        indicatorColor: baseColor,
         labelTextStyle: MaterialStatePropertyAll(TextStyle(color: Colors.black)),
       ),
     );
-    final dark = ThemeData.dark().copyWith(
-      scaffoldBackgroundColor: Colors.black,
-      navigationBarTheme: const NavigationBarThemeData(
+
+    final dark = ThemeData(
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: baseColor,
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+      navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.black,
-        indicatorColor: Colors.greenAccent,
+        indicatorColor: baseColor,
         labelTextStyle: MaterialStatePropertyAll(TextStyle(color: Colors.white)),
       ),
     );
@@ -78,19 +93,20 @@ class MyApp extends StatelessWidget {
       home: const MainScreen(),
     );
   }
+
+
 }
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
-
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
   final _panelController = PanelController();
-  final _player = AudioPlayer();
-  final _favorites = FavoriteService();
+  final AudioPlayer _player = AudioPlayer();
+  final FavoriteService _favorites = FavoriteService();
   double _panelSlide = 0.0;
 
   int _selectedIndex = 0;
@@ -101,9 +117,32 @@ class _MainScreenState extends State<MainScreen> {
 
   late final List<Widget> _pages;
 
+  void _previous() {
+    if (_current == null || _allSongs.isEmpty) return;
+    final i = _allSongs.indexWhere((s) => s.id == _current!.id);
+    final newIndex = (i - 1) < 0 ? _allSongs.length - 1 : i - 1;
+    _onSelect(_allSongs[newIndex]);
+  }
+
   @override
   void initState() {
     super.initState();
+
+    // MethodChannel ile widget'tan gelen sinyalleri dinle
+    final channel = MethodChannel('music_widget_channel').setMethodCallHandler((call) async {
+      debugPrint("📩 Widget'tan sinyal geldi: ${call.method}");
+      if (call.method == "play") {
+        if (_isPlaying) {
+          await _player.pause();
+        } else {
+          await _player.play();
+        }
+      } else if (call.method == "next") {
+        _next();
+      }
+    });
+
+    // Sayfa listesini oluştur
     _pages = [
       MusicHomePage(
         player: _player,
@@ -117,10 +156,13 @@ class _MainScreenState extends State<MainScreen> {
       ),
       const SettingsPage(),
     ];
+
+    // Müzik durumu değişikliklerini dinle
     _player.playerStateStream.listen((state) {
-      final playing = state.playing &&
-          state.processingState != ProcessingState.completed;
+      final playing =
+          state.playing && state.processingState != ProcessingState.completed;
       setState(() => _isPlaying = playing);
+
       if (state.processingState == ProcessingState.completed) {
         if (_repeatOne && _current != null) {
           _player.seek(Duration.zero);
@@ -132,20 +174,29 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  void _onSelect(SongModel song) async {
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSelect(SongModel song) async {
+    final uri = song.uri;
+    if (uri == null) return;
+
     final mediaItem = MediaItem(
       id: song.id.toString(),
       title: song.title ?? 'Bilinmeyen Parça',
       artist: song.artist ?? 'Bilinmeyen Sanatçı',
       album: song.album ?? 'Bilinmeyen Albüm',
       duration: Duration(milliseconds: song.duration ?? 0),
-      artUri: song.uri != null ? Uri.parse('file://${song.uri}') : null,
+      artUri: null,
     );
 
     await _player.setAudioSource(
-      AudioSource.uri(Uri.parse(song.uri!), tag: mediaItem),
+      AudioSource.uri(Uri.parse(uri), tag: mediaItem),
     );
-
     await _player.play();
     setState(() => _current = song);
   }
@@ -153,8 +204,7 @@ class _MainScreenState extends State<MainScreen> {
   void _next() {
     if (_current == null || _allSongs.isEmpty) return;
     final i = _allSongs.indexWhere((s) => s.id == _current!.id);
-    final next = _allSongs[(i + 1) % _allSongs.length];
-    _onSelect(next);
+    _onSelect(_allSongs[(i + 1) % _allSongs.length]);
   }
 
   void _onTap(int idx) => setState(() => _selectedIndex = idx);
@@ -175,7 +225,8 @@ class _MainScreenState extends State<MainScreen> {
             controller: _panelController,
             minHeight: 190,
             maxHeight: MediaQuery.of(context).size.height,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
             onPanelSlide: (p) => setState(() => _panelSlide = p),
             panelBuilder: _fullPanel,
             body: _pages[_selectedIndex],
@@ -210,49 +261,35 @@ class _MainScreenState extends State<MainScreen> {
 
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: bg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius:
+        const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       child: Stack(
         children: [
+          // Buraya o büyük kutuyu geri ekliyoruz
           Positioned(
-            top: 80, // Yükseklik ayarı
-            left: 20, // Sol tarafın mesafesi
+            top: 80,
+            left: 20,
             child: Container(
-              width: 330, // Genişlik
-              height: 370, // Yükseklik
+              width: 330,
+              height: 370,
               decoration: BoxDecoration(
                 color: Colors.grey,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Center(
+              child: const Center(
                 child: Icon(
                   Icons.music_note,
                   color: Colors.white,
-                  size: 80, // İkon boyutu
+                  size: 80,
                 ),
               ),
             ),
           ),
-          Positioned(
-            top: 510, // Yükseklik ayarı
-            left: 20, // Sol tarafın mesafesi
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _current?.title ?? 'Parça Başlığı',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: txt),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  _current?.artist ?? 'Sanatçı',
-                  style: TextStyle(fontSize: 20, color: txt.withOpacity(0.7)),
-                ),
-              ],
-            ),
-          ),
 
-          // Panelin geri kalan kısmı
+          // Panelin içeriği
           Column(
             children: [
               AnimatedOpacity(
@@ -262,26 +299,30 @@ class _MainScreenState extends State<MainScreen> {
                   onTap: () => _panelController.open(),
                   child: Container(
                     height: 60,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                        color: theme.cardColor.withOpacity(0.9),
-                        borderRadius: BorderRadius.circular(16)),
+                      color: theme.cardColor.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     child: Row(
                       children: [
                         Expanded(
                           child: Text(
                             _current?.title ?? 'Parça Başlığı',
                             style: TextStyle(
-                                fontWeight: FontWeight.bold, color: txt),
+                                fontWeight: FontWeight.bold,
+                                color: txt),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         IconButton(
                           icon: Icon(
-                              _isPlaying ? Icons.pause : Icons.play_arrow,
+                              _isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
                               color: txt),
-                          onPressed: () =>
-                          _isPlaying
+                          onPressed: () => _isPlaying
                               ? _player.pause()
                               : _player.play(),
                         ),
@@ -290,24 +331,44 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 430),
+              Text(
+                _current?.title ?? 'Parça Başlığı',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: txt),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _current?.artist ?? 'Sanatçı',
+                style: TextStyle(
+                    fontSize: 16, color: txt.withOpacity(0.7)),
+              ),
               const Spacer(),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
                     icon: Icon(
-                      _current != null && _favorites.isFavorite(_current!.id)
+                      _current != null &&
+                          _favorites.isFavorite(
+                              _current!.id)
                           ? Icons.favorite
                           : Icons.favorite_border,
                       color: _current != null &&
-                          _favorites.isFavorite(_current!.id)
+                          _favorites.isFavorite(
+                              _current!.id)
                           ? Colors.redAccent
                           : txt,
                     ),
                     onPressed: () async {
                       if (_current != null) {
-                        await _favorites.toggleFavorite(_current!.id);
+                        await _favorites
+                            .toggleFavorite(_current!.id);
                         setState(() {});
                       }
                     },
@@ -316,26 +377,35 @@ class _MainScreenState extends State<MainScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                          icon: Icon(Icons.skip_previous, size: 36, color: txt),
-                          onPressed: _next),
+                          icon: Icon(Icons.skip_previous,
+                              size: 36, color: txt),
+                          onPressed: _previous),
                       const SizedBox(width: 12),
                       IconButton(
                         icon: Icon(
-                            _isPlaying ? Icons.pause_circle : Icons.play_circle,
-                            size: 56, color: txt),
-                        onPressed: () =>
-                        _isPlaying ? _player.pause() : _player.play(),
+                            _isPlaying
+                                ? Icons.pause_circle
+                                : Icons.play_circle,
+                            size: 56,
+                            color: txt),
+                        onPressed: () => _isPlaying
+                            ? _player.pause()
+                            : _player.play(),
                       ),
                       const SizedBox(width: 12),
                       IconButton(
-                          icon: Icon(Icons.skip_next, size: 36, color: txt),
+                          icon: Icon(Icons.skip_next,
+                              size: 36, color: txt),
                           onPressed: _next),
                     ],
                   ),
                   IconButton(
                     icon: Icon(Icons.repeat,
-                        color: _repeatOne ? Colors.greenAccent : txt),
-                    onPressed: () => setState(() => _repeatOne = !_repeatOne),
+                        color: _repeatOne
+                            ? Colors.greenAccent
+                            : txt),
+                    onPressed: () =>
+                        setState(() => _repeatOne = !_repeatOne),
                   ),
                 ],
               ),
@@ -352,20 +422,31 @@ class _MainScreenState extends State<MainScreen> {
                         children: [
                           Slider(
                             value: pos.inSeconds.toDouble(),
-                            max: total.inSeconds.toDouble().clamp(
-                                1, double.infinity),
-                            onChanged: (v) =>
-                                _player.seek(Duration(seconds: v.toInt())),
+                            max: total.inSeconds
+                                .toDouble()
+                                .clamp(1, double.infinity),
+                            onChanged: (v) => _player.seek(
+                                Duration(
+                                    seconds: v.toInt())),
                             activeColor: Colors.greenAccent,
-                            inactiveColor: txt.withOpacity(0.3),
+                            inactiveColor:
+                            txt.withOpacity(0.3),
                           ),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment:
+                            MainAxisAlignment
+                                .spaceBetween,
                             children: [
-                              Text(_fmt(pos), style: TextStyle(
-                                  color: txt.withOpacity(0.7))),
-                              Text(_fmt(total), style: TextStyle(
-                                  color: txt.withOpacity(0.7))),
+                              Text(_fmt(pos),
+                                  style: TextStyle(
+                                      color: txt
+                                          .withOpacity(
+                                          0.7))),
+                              Text(_fmt(total),
+                                  style: TextStyle(
+                                      color: txt
+                                          .withOpacity(
+                                          0.7))),
                             ],
                           ),
                         ],

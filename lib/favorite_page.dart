@@ -1,21 +1,23 @@
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
+
 import 'favorite_service.dart';
 import 'theme_provider.dart';
 
 class FavoritePage extends StatefulWidget {
+  final AudioPlayer player;
   final Function(SongModel) onSongSelected;
   final Function(List<SongModel>) onSongListUpdated;
-  final AudioPlayer player;
 
   const FavoritePage({
-    super.key,
+    Key? key,
+    required this.player,
     required this.onSongSelected,
     required this.onSongListUpdated,
-    required this.player,
-  });
+  }) : super(key: key);
 
   @override
   State<FavoritePage> createState() => _FavoritePageState();
@@ -23,68 +25,97 @@ class FavoritePage extends StatefulWidget {
 
 class _FavoritePageState extends State<FavoritePage> {
   final OnAudioQuery _audioQuery = OnAudioQuery();
-  List<SongModel> _favoriteSongs = [];
+  final FavoriteService _favService = FavoriteService();
+  List<SongModel> _songs = [];
 
   @override
   void initState() {
     super.initState();
-    _loadFavoriteSongs();
+    _loadFavorites();
   }
 
-  Future<void> _loadFavoriteSongs() async {
-    final allSongs = await _audioQuery.querySongs();
-    final favoriteIds = FavoriteService().getFavorites();
-    final filtered = allSongs.where((song) => favoriteIds.contains(song.id)).toList();
-
-    setState(() => _favoriteSongs = filtered);
-    widget.onSongListUpdated(filtered);
+  Future<void> _loadFavorites() async {
+    final all = await _audioQuery.querySongs();
+    final favIds = _favService.getFavorites();
+    final favSongs =
+    all.where((s) => favIds.contains(s.id)).toList(growable: false);
+    setState(() => _songs = favSongs);
+    widget.onSongListUpdated(favSongs);
   }
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = Provider.of<ThemeProvider>(context).fontSize;
     final theme = Theme.of(context);
+    final fontSize = Provider.of<ThemeProvider>(context).fontSize;
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
-        child: _favoriteSongs.isEmpty
-            ? Center(
-          child: Text(
-            "Favori şarkı yok.",
-            style: TextStyle(fontSize: fontSize, color: Colors.white70),
-          ),
-        )
-            : ListView.separated(
-          padding: const EdgeInsets.only(top: 32, bottom: 200),
-          itemCount: _favoriteSongs.length,
-          separatorBuilder: (_, __) => const Divider(height: 0, thickness: 0.2),
-          itemBuilder: (context, index) {
-            final song = _favoriteSongs[index];
+    if (_songs.isEmpty) {
+      return const Center(child: Text("Favori şarkı bulunamadı."));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.only(top: 32, bottom: 100),
+      itemCount: _songs.length,
+      separatorBuilder: (_, __) => const Divider(thickness: 0.2),
+      itemBuilder: (context, index) {
+        final song = _songs[index];
+
+        return StreamBuilder<PlayerState>(
+          stream: widget.player.playerStateStream,
+          builder: (context, snapshot) {
+            final isPlaying = snapshot.data?.playing ?? false;
+            final currentTag = widget.player.sequenceState
+                ?.currentSource
+                ?.tag as MediaItem?;
+            final isThisSongPlaying =
+                currentTag?.id == song.id.toString() && isPlaying;
+
             return ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              leading: const Icon(Icons.favorite, color: Colors.redAccent),
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              leading: Icon(
+                isThisSongPlaying ? Icons.pause : Icons.play_arrow,
+                color: Colors.greenAccent,
+              ),
               title: Text(
                 song.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+                style:
+                TextStyle(fontWeight: FontWeight.bold, fontSize: fontSize),
               ),
               subtitle: Text(
                 song.artist ?? "Bilinmeyen Sanatçı",
                 style: TextStyle(fontSize: fontSize * 0.8),
               ),
-              onTap: () async {
-                await widget.player.setAudioSource(
-                  AudioSource.uri(Uri.parse(song.uri!), tag: song.id.toString()),
-                );
-                await widget.player.play();
-                widget.onSongSelected(song);
+              trailing: IconButton(
+                icon: Icon(
+                  _favService.isFavorite(song.id)
+                      ? Icons.favorite
+                      : Icons.favorite_border,
+                  color: _favService.isFavorite(song.id)
+                      ? Colors.redAccent
+                      : (theme.brightness == Brightness.dark
+                      ? Colors.white
+                      : Colors.black),
+                ),
+                onPressed: () async {
+                  await _favService.toggleFavorite(song.id);
+                  setState(() {
+                    _songs.removeWhere((s) => s.id == song.id);
+                  });
+                },
+              ),
+              onTap: () {
+                if (isThisSongPlaying) {
+                  widget.player.pause();
+                } else {
+                  widget.onSongSelected(song);
+                }
               },
             );
           },
-        ),
-      ),
+        );
+      },
     );
   }
 }

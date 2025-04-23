@@ -9,6 +9,8 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final currentColor = themeProvider.primaryColor;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Ayarlar')),
       body: Padding(
@@ -30,6 +32,21 @@ class SettingsPage extends StatelessWidget {
               divisions: 6,
               label: themeProvider.fontSize.toInt().toString(),
               onChanged: (val) => themeProvider.updateFontSize(val),
+            ),
+            const SizedBox(height: 20),
+            const Text('Tema Rengi:'),
+            Wrap(
+              spacing: 8,
+              children: Colors.primaries.map((color) {
+                return GestureDetector(
+                  onTap: () => themeProvider.updatePrimaryColor(color),
+                  child: CircleAvatar(
+                    backgroundColor: color,
+                    radius: 16,
+                    child: currentColor == color ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                  ),
+                );
+              }).toList(),
             ),
             const SizedBox(height: 20),
             const Text('Uygulama Versiyonu: 1.0.0'),

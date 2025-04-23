@@ -1,24 +1,24 @@
-import 'dart:ui';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
+
 import 'favorite_service.dart';
-import 'main.dart';
 import 'theme_provider.dart';
 
 class MusicHomePage extends StatefulWidget {
+  final AudioPlayer player;
   final Function(SongModel) onSongSelected;
   final Function(List<SongModel>) onSongListUpdated;
-  final AudioPlayer player;
 
   const MusicHomePage({
-    super.key,
+    Key? key,
+    required this.player,
     required this.onSongSelected,
     required this.onSongListUpdated,
-    required this.player,
-  });
+  }) : super(key: key);
 
   @override
   State<MusicHomePage> createState() => _MusicHomePageState();
@@ -39,11 +39,9 @@ class _MusicHomePageState extends State<MusicHomePage> {
     if (!await Permission.audio.isGranted) {
       await Permission.audio.request();
     }
-    if (await Permission.audio.isGranted) {
-      final fetched = await _audioQuery.querySongs();
-      setState(() => _songs = fetched);
-      widget.onSongListUpdated(fetched);
-    }
+    final fetched = await _audioQuery.querySongs();
+    setState(() => _songs = fetched);
+    widget.onSongListUpdated(fetched);
   }
 
   @override
@@ -51,52 +49,43 @@ class _MusicHomePageState extends State<MusicHomePage> {
     final theme = Theme.of(context);
     final fontSize = Provider.of<ThemeProvider>(context).fontSize;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
+    if (_songs.isEmpty) {
+      return Center(
+        child: Text(
+          "Şarkı bulunamadı veya izin verilmedi.",
+          style: TextStyle(fontSize: fontSize),
         ),
-        margin: const EdgeInsets.only(top: 12),
-        child: SafeArea(
-          top: false,
-          child: _songs.isEmpty
-              ? Center(
-            child: Text(
-              "Şarkı bulunamadı veya izin verilmedi.",
-              style: TextStyle(fontSize: fontSize),
-            ),
-          )
-              : ListView.separated(
-            padding: const EdgeInsets.only(top: 32, bottom: 400),
-            itemCount: _songs.length,
-            separatorBuilder: (_, __) => const Divider(height: 0, thickness: 0.2),
-            itemBuilder: (context, index) {
-              final song = _songs[index];
-              return _buildSongTile(song, fontSize);
-            },
-          ),
-        ),
-      ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.only(top: 32, bottom: 400),
+      itemCount: _songs.length,
+      separatorBuilder: (_, __) => const Divider(thickness: 0.2),
+      itemBuilder: (context, index) {
+        final song = _songs[index];
+        return _buildSongTile(song, fontSize, theme);
+      },
     );
   }
 
-  Widget _buildSongTile(SongModel song, double fontSize) {
+  Widget _buildSongTile(SongModel song, double fontSize, ThemeData theme) {
     final isFav = _favService.isFavorite(song.id);
 
     return StreamBuilder<PlayerState>(
       stream: widget.player.playerStateStream,
       builder: (context, snapshot) {
         final isPlaying = snapshot.data?.playing ?? false;
-        final currentTag = widget.player.sequenceState?.currentSource?.tag;
-        final isThisSongPlaying = (currentTag == song.id.toString()) && isPlaying;
+        // Because we tag with a MediaItem whose id == song.id.toString():
+        final currentTag = widget.player.sequenceState
+            ?.currentSource
+            ?.tag as MediaItem?;
+        final isThisSongPlaying =
+            currentTag?.id == song.id.toString() && isPlaying;
 
         return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           leading: Icon(
             isThisSongPlaying ? Icons.pause : Icons.play_arrow,
             color: Colors.greenAccent,
@@ -105,7 +94,8 @@ class _MusicHomePageState extends State<MusicHomePage> {
             song.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: fontSize),
+            style:
+            TextStyle(fontWeight: FontWeight.bold, fontSize: fontSize),
           ),
           subtitle: Text(
             song.artist ?? "Bilinmeyen Sanatçı",
@@ -116,32 +106,22 @@ class _MusicHomePageState extends State<MusicHomePage> {
               isFav ? Icons.favorite : Icons.favorite_border,
               color: isFav
                   ? Colors.redAccent
-                  : Theme.of(context).brightness == Brightness.dark
+                  : (theme.brightness == Brightness.dark
                   ? Colors.white
-                  : Colors.black,
+                  : Colors.black),
             ),
             onPressed: () async {
               await _favService.toggleFavorite(song.id);
               setState(() {});
             },
           ),
-            onTap: () async {
-              final curTag = widget.player.sequenceState?.currentSource?.tag;
-              final isSameSong = (curTag == song.id.toString());
-
-              if (isSameSong && isPlaying) {
-                await widget.player.pause();
-              } else {
-                await widget.player.setAudioSource(
-                  AudioSource.uri(Uri.parse(song.uri!), tag: song.id.toString()),
-                );
-                await widget.player.play();
-
-
-                widget.onSongSelected(song);
-              }
+          onTap: () {
+            if (isThisSongPlaying) {
+              widget.player.pause();
+            } else {
+              widget.onSongSelected(song);
             }
-
+          },
         );
       },
     );
